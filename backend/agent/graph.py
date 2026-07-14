@@ -162,7 +162,7 @@ def call_model(state: AgentState) -> Dict[str, Any]:
                         "content": msg.content
                     })
 
-            model_name = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+            model_name = os.getenv("GROQ_MODEL", "gemma2-9b-it")
 
             response = client.chat.completions.create(
                 model=model_name,
