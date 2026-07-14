@@ -78,7 +78,7 @@ def get_hcp_profile(name_query: str) -> str:
 
 @tool
 def log_interaction(
-    hcp_id: int,
+    hcp_id: Any,
     interaction_type: str,
     notes: str,
     sentiment: str = "Neutral",
@@ -91,7 +91,7 @@ def log_interaction(
     Log a new interaction with an HCP.
     
     Inputs:
-    - hcp_id: Database ID of the HCP.
+    - hcp_id: Database ID of the HCP (integer or string).
     - interaction_type: 'In-Person', 'Call', 'Email', or 'Video'.
     - notes: Raw conversation notes.
     - sentiment: 'Positive', 'Neutral', or 'Negative'.
@@ -100,6 +100,11 @@ def log_interaction(
     - next_steps: Planned next steps.
     - date_str: Optional date (YYYY-MM-DD), default is today.
     """
+    try:
+        hcp_id_int = int(hcp_id)
+    except (ValueError, TypeError):
+        return json.dumps({"status": "error", "message": f"Invalid hcp_id '{hcp_id}'. Must be an integer."})
+
     if date_str:
         try:
             interaction_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -109,15 +114,15 @@ def log_interaction(
         interaction_date = datetime.date.today()
 
     with DBSession() as db:
-        hcp = db.query(HCP).filter(HCP.id == hcp_id).first()
+        hcp = db.query(HCP).filter(HCP.id == hcp_id_int).first()
         if not hcp:
-            return json.dumps({"status": "error", "message": f"HCP with ID {hcp_id} does not exist."})
+            return json.dumps({"status": "error", "message": f"HCP with ID {hcp_id_int} does not exist."})
         
         # Simple AI Summary generation if not provided (mocking a mini LLM summary for speed, backend main can enrich it)
         ai_summary = f"{interaction_type} interaction with Dr. {hcp.name.replace('Dr. ', '')} discussing {products_discussed or 'products'}. Notes: {notes[:100]}..."
 
         new_interaction = Interaction(
-            hcp_id=hcp_id,
+            hcp_id=hcp_id_int,
             user_id=1,  # Default Rep ID
             date=interaction_date,
             interaction_type=interaction_type,
@@ -149,7 +154,7 @@ def log_interaction(
 
 @tool
 def edit_interaction(
-    interaction_id: int,
+    interaction_id: Any,
     interaction_type: Optional[str] = None,
     notes: Optional[str] = None,
     sentiment: Optional[str] = None,
@@ -162,10 +167,15 @@ def edit_interaction(
     Modify an existing interaction record by ID.
     Only pass the fields that need of modification.
     """
+    try:
+        interaction_id_int = int(interaction_id)
+    except (ValueError, TypeError):
+        return json.dumps({"status": "error", "message": f"Invalid interaction_id '{interaction_id}'. Must be an integer."})
+
     with DBSession() as db:
-        interaction = db.query(Interaction).filter(Interaction.id == interaction_id).first()
+        interaction = db.query(Interaction).filter(Interaction.id == interaction_id_int).first()
         if not interaction:
-            return json.dumps({"status": "error", "message": f"Interaction with ID {interaction_id} not found."})
+            return json.dumps({"status": "error", "message": f"Interaction with ID {interaction_id_int} not found."})
 
         # Keep tracking change logs
         updates = []
@@ -198,7 +208,7 @@ def edit_interaction(
             db.commit()
             return json.dumps({
                 "status": "success",
-                "message": f"Successfully updated fields {updates} for interaction ID {interaction_id}."
+                "message": f"Successfully updated fields {updates} for interaction ID {interaction_id_int}."
             })
         else:
             return json.dumps({
@@ -208,29 +218,35 @@ def edit_interaction(
 
 @tool
 def schedule_followup(
-    hcp_id: str,  # accept string or int, will be cast to int
+    hcp_id: Any,  # accept Any (string/int), will be coerced inside
     task_description: str,
     days_from_now: Optional[int] = None,
     due_date_str: Optional[str] = None,
     priority: str = "Medium",
-    interaction_id: Optional[int] = None
+    interaction_id: Optional[Any] = None
 ) -> str:
     """
     Schedules a follow-up reminder task for an HCP.
 
     Inputs:
-    - hcp_id: The database ID of the HCP (string or int).
+    - hcp_id: The database ID of the HCP.
     - task_description: What needs to be done.
     - days_from_now: Days until due (e.g. 3, 7). Or specify due_date_str.
     - due_date_str: Specific due date (YYYY-MM-DD).
     - priority: 'High', 'Medium', or 'Low'.
     - interaction_id: Optional related interaction ID.
     """
-    # Cast hcp_id to int if it's a string
     try:
         hcp_id_int = int(hcp_id)
     except (ValueError, TypeError):
         return json.dumps({"status": "error", "message": f"Invalid hcp_id '{hcp_id}'. Must be an integer."})
+
+    interaction_id_int = None
+    if interaction_id is not None:
+        try:
+            interaction_id_int = int(interaction_id)
+        except (ValueError, TypeError):
+            pass
 
     if due_date_str:
         try:
@@ -244,11 +260,11 @@ def schedule_followup(
     with DBSession() as db:
         hcp = db.query(HCP).filter(HCP.id == hcp_id_int).first()
         if not hcp:
-            return json.dumps({"status": "error", "message": f"HCP ID {hcp_id} not found."})
+            return json.dumps({"status": "error", "message": f"HCP ID {hcp_id_int} not found."})
 
         new_followup = FollowUp(
             hcp_id=hcp_id_int,
-            interaction_id=interaction_id,
+            interaction_id=interaction_id_int,
             due_date=target_date,
             task_description=task_description,
             priority=priority,
@@ -265,18 +281,25 @@ def schedule_followup(
 @tool
 def search_interactions(
     query: str,
-    hcp_id: Optional[int] = None,
+    hcp_id: Optional[Any] = None,
     product_name: Optional[str] = None
 ) -> str:
     """
     Search past HCP interactions using a search term (checks notes, outcomes, summaries) 
     and optional filters like hcp_id or product_name discussed.
     """
+    hcp_id_int = None
+    if hcp_id is not None:
+        try:
+            hcp_id_int = int(hcp_id)
+        except (ValueError, TypeError):
+            pass
+
     with DBSession() as db:
         q = db.query(Interaction)
         
-        if hcp_id:
-            q = q.filter(Interaction.hcp_id == hcp_id)
+        if hcp_id_int is not None:
+            q = q.filter(Interaction.hcp_id == hcp_id_int)
         if product_name:
             q = q.filter(Interaction.products_discussed.like(f"%{product_name}%"))
         
