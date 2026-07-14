@@ -15,6 +15,35 @@ class DBSession:
             self.db.rollback()
         self.db.close()
 
+def _resolve_hcp_id(hcp_id: Any) -> Optional[int]:
+    if hcp_id is None:
+        return None
+    try:
+        return int(hcp_id)
+    except (ValueError, TypeError):
+        pass
+    
+    name_str = str(hcp_id).replace(".", " ").strip().lower()
+    for title in ["dr", "doctor", "physician", "mrs", "mr", "ms"]:
+        if name_str.startswith(title + " "):
+            name_str = name_str[len(title) + 1:].strip()
+        elif name_str == title:
+            name_str = ""
+            
+    if not name_str:
+        return None
+        
+    with SessionLocal() as db:
+        hcp = db.query(HCP).filter(HCP.name.ilike(f"%{name_str}%")).first()
+        if not hcp:
+            parts = [p for p in name_str.split() if len(p) > 2]
+            for part in parts:
+                temp_hcp = db.query(HCP).filter(HCP.name.ilike(f"%{part}%")).first()
+                if temp_hcp:
+                    hcp = temp_hcp
+                    break
+        return hcp.id if hcp else None
+
 @tool
 def get_hcp_profile(name_query: str) -> str:
     """
@@ -121,10 +150,9 @@ def log_interaction(
     date_str: Meeting date (YYYY-MM-DD).
     brochures_shared: Boolean indicating if files or brochures were shared.
     """
-    try:
-        hcp_id_int = int(hcp_id)
-    except (ValueError, TypeError):
-        return json.dumps({"status": "error", "message": f"Invalid hcp_id '{hcp_id}'. Must be an integer."})
+    hcp_id_int = _resolve_hcp_id(hcp_id)
+    if hcp_id_int is None:
+        return json.dumps({"status": "error", "message": f"HCP name or ID '{hcp_id}' could not be matched in the database registry."})
 
     if date_str:
         try:
@@ -270,10 +298,9 @@ def schedule_followup(
     priority: 'High', 'Medium', or 'Low'.
     interaction_id: Optional related ID.
     """
-    try:
-        hcp_id_int = int(hcp_id)
-    except (ValueError, TypeError):
-        return json.dumps({"status": "error", "message": f"Invalid hcp_id '{hcp_id}'. Must be an integer."})
+    hcp_id_int = _resolve_hcp_id(hcp_id)
+    if hcp_id_int is None:
+        return json.dumps({"status": "error", "message": f"HCP name or ID '{hcp_id}' could not be matched in the database registry."})
 
     interaction_id_int = None
     if interaction_id is not None:

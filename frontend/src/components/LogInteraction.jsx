@@ -113,6 +113,16 @@ export default function LogInteraction({ onNavigateBack }) {
     }))
       .unwrap()
       .then((res) => {
+        const resolveHcpId = (inputVal) => {
+          if (!inputVal) return '';
+          if (/^\d+$/.test(String(inputVal))) {
+            return String(inputVal);
+          }
+          const query = String(inputVal).toLowerCase().replace(/dr\.?\s*/i, '').trim();
+          const matched = hcps.find(h => h.name.toLowerCase().includes(query) || query.includes(h.name.toLowerCase()));
+          return matched ? String(matched.id) : '';
+        };
+
         // Resolve tool calls to pre-fill the form on the left in real-time!
         const toolCalls = res.state_updates?.tool_calls || [];
         toolCalls.forEach(tc => {
@@ -123,7 +133,7 @@ export default function LogInteraction({ onNavigateBack }) {
             
             setFormData(prev => ({
               ...prev,
-              hcp_id: tc.args.hcp_id || prev.hcp_id,
+              hcp_id: resolveHcpId(tc.args.hcp_id) || prev.hcp_id,
               interaction_type: tc.args.interaction_type || prev.interaction_type,
               date: tc.args.date_str || tc.args.date || prev.date,
               notes: tc.args.notes || prev.notes,
@@ -142,7 +152,7 @@ export default function LogInteraction({ onNavigateBack }) {
               
               return {
                 ...prev,
-                hcp_id: tc.args.hcp_id !== undefined ? tc.args.hcp_id : prev.hcp_id,
+                hcp_id: tc.args.hcp_id !== undefined ? resolveHcpId(tc.args.hcp_id) : prev.hcp_id,
                 interaction_type: tc.args.interaction_type !== undefined ? tc.args.interaction_type : prev.interaction_type,
                 date: (tc.args.date_str || tc.args.date) !== undefined ? (tc.args.date_str || tc.args.date) : prev.date,
                 notes: tc.args.notes !== undefined ? tc.args.notes : prev.notes,
