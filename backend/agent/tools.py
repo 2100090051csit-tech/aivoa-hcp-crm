@@ -22,12 +22,33 @@ def get_hcp_profile(name_query: str) -> str:
     Use this to find NPI, hospital, specialty, average current sentiment, and interaction history.
     """
     with DBSession() as db:
-        hcp = db.query(HCP).filter(HCP.name.like(f"%{name_query}%")).first()
+        # Clean the name query: lowercase, replace dots, and remove common title prefixes
+        normalized = name_query.replace(".", " ").strip().lower()
+        for title in ["dr", "doctor", "physician", "mrs", "mr", "ms"]:
+            if normalized.startswith(title + " "):
+                normalized = normalized[len(title) + 1:].strip()
+            elif normalized == title:
+                normalized = ""
+        
+        # If the normalized query is empty, let's handle failure immediately
+        if not normalized:
+            all_hcps = db.query(HCP).limit(5).all()
+            hcp_names = [h.name for h in all_hcps]
+            return json.dumps({
+                "status": "error",
+                "message": f"HCP name query '{name_query}' is too generic or empty.",
+                "known_hcps": hcp_names
+            })
+
+        # Try direct query matching name containing normalized search term
+        hcp = db.query(HCP).filter(HCP.name.like(f"%{normalized}%")).first()
         if not hcp:
-            # Try a split search
-            parts = name_query.replace("Dr.", "").strip().split()
-            if parts:
-                hcp = db.query(HCP).filter(HCP.name.like(f"%{parts[0]}%")).first()
+            # Try splitting and filtering out short/invalid parts (like "in", "the", "and")
+            parts = [p for p in normalized.split() if len(p) > 2 and p not in ["doctor", "physician", "hcp", "hospital", "clinic"]]
+            for part in parts:
+                hcp = db.query(HCP).filter(HCP.name.like(f"%{part}%")).first()
+                if hcp:
+                    break
         
         if not hcp:
             # Let's list some known HCPs to help the LLM correct itself
@@ -85,20 +106,20 @@ def log_interaction(
     products_discussed: Optional[str] = None,
     outcome: Optional[str] = None,
     next_steps: Optional[str] = None,
-    date_str: Optional[str] = None
+    date_str: Optional[str] = None,
+    brochures_shared: bool = False
 ) -> str:
     """
     Log a new interaction with an HCP.
-    
-    Inputs:
-    - hcp_id: Database ID of the HCP (integer or string).
-    - interaction_type: 'In-Person', 'Call', 'Email', or 'Video'.
-    - notes: Raw conversation notes.
-    - sentiment: 'Positive', 'Neutral', or 'Negative'.
-    - products_discussed: Comma separated products discussed, e.g., 'Keytruda' or 'Jardiance'.
-    - outcome: Short summary of the discussion outcome.
-    - next_steps: Planned next steps.
-    - date_str: Optional date (YYYY-MM-DD), default is today.
+    hcp_id: HCP integer ID (fetch via get_hcp_profile first).
+    interaction_type: 'In-Person', 'Call', 'Email', or 'Video'.
+    notes: Raw discussion notes.
+    sentiment: 'Positive', 'Neutral', or 'Negative'.
+    products_discussed: Verbatim drug or disease (e.g. 'Keytruda', 'ocd').
+    outcome: Discussion outcome summary.
+    next_steps: Future planned tasks.
+    date_str: Meeting date (YYYY-MM-DD).
+    brochures_shared: Boolean indicating if files or brochures were shared.
     """
     try:
         hcp_id_int = int(hcp_id)
@@ -118,6 +139,15 @@ def log_interaction(
         if not hcp:
             return json.dumps({"status": "error", "message": f"HCP with ID {hcp_id_int} does not exist."})
         
+        # Format brochures_shared into outcome
+        final_outcome = outcome
+        if brochures_shared:
+            if final_outcome:
+                if "brochures shared" not in final_outcome.lower():
+                    final_outcome = f"{final_outcome} (Brochures shared)".strip()
+            else:
+                final_outcome = "Brochures shared"
+
         # Simple AI Summary generation if not provided (mocking a mini LLM summary for speed, backend main can enrich it)
         ai_summary = f"{interaction_type} interaction with Dr. {hcp.name.replace('Dr. ', '')} discussing {products_discussed or 'products'}. Notes: {notes[:100]}..."
 
@@ -128,7 +158,7 @@ def log_interaction(
             interaction_type=interaction_type,
             notes=notes,
             sentiment=sentiment,
-            outcome=outcome,
+            outcome=final_outcome,
             ai_summary=ai_summary,
             products_discussed=products_discussed,
             next_steps=next_steps,
@@ -161,7 +191,8 @@ def edit_interaction(
     products_discussed: Optional[str] = None,
     outcome: Optional[str] = None,
     next_steps: Optional[str] = None,
-    date_str: Optional[str] = None
+    date_str: Optional[str] = None,
+    brochures_shared: Optional[bool] = None
 ) -> str:
     """
     Modify an existing interaction record by ID.
@@ -203,6 +234,11 @@ def edit_interaction(
                 updates.append("date")
             except ValueError:
                 pass
+        if brochures_shared is not None:
+            if brochures_shared:
+                if not interaction.outcome or "brochures shared" not in interaction.outcome.lower():
+                    interaction.outcome = f"{interaction.outcome or ''} (Brochures shared)".strip()
+            updates.append("brochures_shared")
 
         if updates:
             db.commit()
@@ -227,14 +263,12 @@ def schedule_followup(
 ) -> str:
     """
     Schedules a follow-up reminder task for an HCP.
-
-    Inputs:
-    - hcp_id: The database ID of the HCP.
-    - task_description: What needs to be done.
-    - days_from_now: Days until due (e.g. 3, 7). Or specify due_date_str.
-    - due_date_str: Specific due date (YYYY-MM-DD).
-    - priority: 'High', 'Medium', or 'Low'.
-    - interaction_id: Optional related interaction ID.
+    hcp_id: HCP unique integer ID.
+    task_description: Action details.
+    days_from_now: Days until due.
+    due_date_str: Specific due date (YYYY-MM-DD).
+    priority: 'High', 'Medium', or 'Low'.
+    interaction_id: Optional related ID.
     """
     try:
         hcp_id_int = int(hcp_id)

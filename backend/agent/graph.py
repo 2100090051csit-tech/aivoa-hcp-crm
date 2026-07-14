@@ -26,11 +26,23 @@ You have access to 5 tools:
 4. `schedule_followup(hcp_id, task_description, days_from_now, due_date_str, priority, interaction_id)`: Setup an actionable item or reminder.
 5. `search_interactions(query, hcp_id, product_name)`: Search past records for feedback or discussion points.
 
-CRITICAL Guidelines:
-1. When calling a tool, DO NOT output any conversational text, explanations, or summaries. Your response must contain ONLY the tool call itself.
-2. Only output a conversational response/summary when you are NOT calling any tools (i.e. once the tool results are back and you are summarizing the outcome).
-3. Do not try to write json strings in your response text. Use the tool calling capability directly.
-4. If you need to find an HCP's profile and then log/create something, first call `get_hcp_profile`. Once the tool returns the profile data, you will receive another turn to call `log_interaction` or other tools. Do not attempt to run multiple dependent steps in a single response turn.
+CRITICAL GUIDELINES FOR DYNAMIC FORM CONTROL:
+1. ALWAYS TRIGGER A TOOL: If the user describes ANY meeting, interaction, call, or video session, you MUST log it by invoking the tools. Do not just reply with text; you must control the form dynamically.
+2. STEP-BY-STEP ORCHESTRATION (NO FAKE/PLACEHOLDER IDs): If you do not have the doctor's integer ID from a previous tool output, you MUST call `get_hcp_profile(name_query=...)` FIRST to find it. Do NOT call `log_interaction` with placeholder/fake IDs (e.g. 12345 or 67890) or null values in the same turn. Run `get_hcp_profile` on its own first. Once the profile tool succeeds and returns the doctor's integer ID to you, call `log_interaction` with that correct ID in the next turn.
+3. PARTIAL PHYSICIAN NAMES: If the user refers to a physician by a partial name (e.g., "dr smith", "smith", "priya", "rajesh"), you MUST first call `get_hcp_profile(name_query=<partial_name>)` to look up their ID. Once the tool returns the profile data, call `log_interaction` using the returned `hcp_id`.
+4. DATABASE LOOKUP FALLBACK (CUSTOM ERROR MESSAGE): If the get_hcp_profile tool returns no matching doctor, or if the lookup fails (returns an error status), you MUST reply with this exact helpful error message:
+   "⚠️ I couldn't find a doctor in our registry matching '<name>'. Please type their name again or choose from the registry list: Dr. Rajesh Kumar, Dr. Ananya Sharma, Dr. Vikram Adiga, Dr. Priya Patel, Dr. Smith, or Dr. John."
+   Do NOT output this message on the first turn before you have received the output of the get_hcp_profile tool. If you are calling get_hcp_profile, do not output any warning message text in that turn.
+5. EXTRACT PARAMETERS DYNAMICALLY FROM CONVERSATION:
+   - `interaction_type`: Determine based on text clues. Use "Video" if they mention "video", "confrence", "zoom", "teams", "meets". Use "Call" for "phone", "call", "mobile". Use "Email" for "email", "mail", "sent files", "shared files". Default to "In-Person" if no channel is specified.
+   - `products_discussed`: Set this to whatever drug, disease, topic, or indication they discussed (even if it's "ocd" or a custom text). Write verbatim.
+   - `sentiment`: Map "good", "great", "positive", "helpful" -> "Positive". Map "bad", "terrible", "hard pushback", "negative", "worst" -> "Negative". Otherwise, default to "Neutral".
+   - `notes`: Populate this field with the user's description.
+   - `outcome`: Extract progress/feedback (e.g. "bad experience", "positive response", "requested data").
+   - `next_steps`: Extract planned follow-ups (e.g., "will email clinical trials tomorrow", "send brochures").
+   - `date_str`: Format as YYYY-MM-DD. Calculate relative date terms (e.g., "today" is 2026-07-15, "yesterday" is 2026-07-14) relative to current local date July 15, 2026.
+   - `brochures_shared`: Set to true if they mention "brochure", "pamphlet", "brochures", "slides", "files", or sharing documents. Otherwise, set to false.
+6. NO CONVERSATIONAL TEXT DURING TOOL CALLS: When calling any tool, output ONLY the tool call. Do not include conversational text or summary. Only output standard conversational text in the final turn when no further tools are called.
 """
 
 # Map tools list by name
@@ -140,7 +152,7 @@ def call_model(state: AgentState) -> Dict[str, Any]:
 
     for attempt in range(MAX_RETRIES):
         try:
-            client = Groq(api_key=api_key)
+            client = Groq(api_key=api_key, max_retries=0)
             
             # Prepare messages in the shape Groq expects
             groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -193,8 +205,28 @@ def call_model(state: AgentState) -> Dict[str, Any]:
 
         except Exception as e:
             err_str = str(e)
-            # Detect rate limit (429) errors and retry with backoff
-            if "429" in err_str or "rate_limit_exceeded" in err_str:
+            
+            # Detect model deprecation/decommissioning errors and fallback automatically
+            if "decommissioned" in err_str.lower() or "does not exist" in err_str.lower() or "not found" in err_str.lower() or "unknown model" in err_str.lower() or "400" in err_str:
+                current_model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
+                fallback_model = "llama-3.1-8b-instant"
+                logger.warning(f"Model '{current_model}' is decommissioned or unavailable. Automatically falling back to '{fallback_model}'. Error was: {err_str}")
+                os.environ["GROQ_MODEL"] = fallback_model
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(0.5)
+                    continue
+            
+            # Detect rate limit (429 / Too Many Requests) errors and retry with backoff
+            if "429" in err_str or "rate" in err_str.lower() or "limit" in err_str.lower() or "too many requests" in err_str.lower():
+                current_model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
+                if "70b" in current_model or "gemma" in current_model.lower():
+                    fallback_model = "llama-3.1-8b-instant"
+                    logger.warning(f"Model '{current_model}' rate-limited (429). Falling back to '{fallback_model}'...")
+                    os.environ["GROQ_MODEL"] = fallback_model
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(0.5)
+                        continue
+                
                 # Try to parse the suggested wait time from the error message
                 wait_match = re.search(r'try again in (\d+(?:\.\d+)?)([ms]+)', err_str)
                 if wait_match:

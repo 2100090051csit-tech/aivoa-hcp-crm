@@ -1,5 +1,8 @@
 import datetime
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+load_dotenv()
+
 from database import SessionLocal, Base, engine
 from models import User, HCP, Product, Interaction, FollowUp
 

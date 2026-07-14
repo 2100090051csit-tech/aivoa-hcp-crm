@@ -154,8 +154,10 @@ def chat_agent(chat_req: ChatRequest):
     """
     try:
         # Convert schemas.ChatMessage back into LangChain message instances
+        # Keep only the last 2 history messages to prevent rate limits and token accumulation
+        trimmed_history = chat_req.history[-2:] if len(chat_req.history) > 2 else chat_req.history
         lc_history = []
-        for msg in chat_req.history:
+        for msg in trimmed_history:
             if msg.role == "user":
                 lc_history.append(HumanMessage(content=msg.content))
             elif msg.role == "assistant":

@@ -21,7 +21,7 @@ class HCP(Base):
     specialty = Column(String(100), nullable=False)  # e.g., Cardiology, Oncology
     hospital = Column(String(150), nullable=False)
     npi = Column(String(10), unique=True, nullable=False)  # National Provider Identifier
-    tier = Column(String(20), default="Tier 2")  # Tier 1 (High Value), Tier 2, Tier 3
+    tier = Column(String(100), default="Tier 2")  # Tier 1 (High Value), Tier 2, Tier 3
     phone = Column(String(20), nullable=True)
     email = Column(String(100), nullable=True)
     current_sentiment = Column(Float, default=0.0)  # average interaction score (-1.0 to 1.0 or 0 to 10)
