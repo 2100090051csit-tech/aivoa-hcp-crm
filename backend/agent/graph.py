@@ -28,11 +28,10 @@ You have access to 5 tools:
 
 CRITICAL GUIDELINES FOR DYNAMIC FORM CONTROL:
 1. ALWAYS TRIGGER A TOOL: If the user describes ANY meeting, interaction, call, or video session, you MUST log it by invoking the tools. Do not just reply with text; you must control the form dynamically.
-2. STEP-BY-STEP ORCHESTRATION (NO FAKE/PLACEHOLDER IDs): If you do not have the doctor's integer ID from a previous tool output, you MUST call `get_hcp_profile(name_query=...)` FIRST to find it. Do NOT call `log_interaction` with placeholder/fake IDs (e.g. 12345 or 67890) or null values in the same turn. Run `get_hcp_profile` on its own first. Once the profile tool succeeds and returns the doctor's integer ID to you, call `log_interaction` with that correct ID in the next turn.
-3. PARTIAL PHYSICIAN NAMES: If the user refers to a physician by a partial name (e.g., "dr smith", "smith", "priya", "rajesh"), you MUST first call `get_hcp_profile(name_query=<partial_name>)` to look up their ID. Once the tool returns the profile data, call `log_interaction` using the returned `hcp_id`.
-4. DATABASE LOOKUP FALLBACK (CUSTOM ERROR MESSAGE): If the get_hcp_profile tool returns no matching doctor, or if the lookup fails (returns an error status), you MUST reply with this exact helpful error message:
+2. DYNAMIC REGISTRY MATCHING (FASTEST PATH): Inspect the ACTIVE PHYSICIAN REGISTRY context below. If the user's description matches a doctor in that registry (case-insensitively, e.g. "smith", "dr.smith", "priya", "rajesh"), match the corresponding integer `id` (e.g. Smith matches 5, Priya Patel matches 4) and immediately invoke `log_interaction` using that correct ID in your very first turn. Do NOT use fake, placeholder, or null IDs. Only invoke `get_hcp_profile` if the physician name is missing from the list or unrecognizable.
+3. PARTIAL PHYSICIAN NAMES: Resolve partial names (e.g. "smith" -> 5, "priya" -> 4) using the list context and invoke the tools directly on the first turn.
+4. DATABASE LOOKUP FALLBACK (CUSTOM ERROR MESSAGE): If the doctor name is not recognizable or does not exist in the registry context, you MUST immediately reply with this exact error message:
    "⚠️ I couldn't find a doctor in our registry matching '<name>'. Please type their name again or choose from the registry list: Dr. Rajesh Kumar, Dr. Ananya Sharma, Dr. Vikram Adiga, Dr. Priya Patel, Dr. Smith, or Dr. John."
-   Do NOT output this message on the first turn before you have received the output of the get_hcp_profile tool. If you are calling get_hcp_profile, do not output any warning message text in that turn.
 5. EXTRACT PARAMETERS DYNAMICALLY FROM CONVERSATION:
    - `interaction_type`: Determine based on text clues. Use "Video" if they mention "video", "confrence", "zoom", "teams", "meets". Use "Call" for "phone", "call", "mobile". Use "Email" for "email", "mail", "sent files", "shared files". Default to "In-Person" if no channel is specified.
    - `products_discussed`: Set this to whatever drug, disease, topic, or indication they discussed (even if it's "ocd" or a custom text). Write verbatim.
@@ -154,8 +153,29 @@ def call_model(state: AgentState) -> Dict[str, Any]:
         try:
             client = Groq(api_key=api_key, max_retries=0)
             
+            # Fetch registry from database dynamically to allow single-turn exact ID matching
+            from database import SessionLocal
+            from models import HCP
+            registry_list = []
+            try:
+                with SessionLocal() as db:
+                    hcps = db.query(HCP).all()
+                    for h in hcps:
+                        registry_list.append(f"- {h.name} (id: {h.id}, specialty: {h.specialty}, hospital: {h.hospital})")
+            except Exception:
+                registry_list = [
+                    "- Dr. Rajesh Kumar (id: 1, specialty: Cardiology, hospital: City Hospital)",
+                    "- Dr. Ananya Sharma (id: 2, specialty: Pediatrics, hospital: Grace Clinic)",
+                    "- Dr. Vikram Adiga (id: 3, specialty: Orthopedics, hospital: Apex Hospital)",
+                    "- Dr. Priya Patel (id: 4, specialty: Oncology, hospital: Cancer Center)",
+                    "- Dr. Smith (id: 5, specialty: Cardiology, hospital: Metro Hospital)",
+                    "- Dr. John (id: 6, specialty: Neurology, hospital: Neuro Care)"
+                ]
+            registry_context = "\n".join(registry_list)
+            dynamic_system_prompt = f"{SYSTEM_PROMPT}\n\nACTIVE PHYSICIAN REGISTRY:\n{registry_context}"
+
             # Prepare messages in the shape Groq expects
-            groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            groq_messages = [{"role": "system", "content": dynamic_system_prompt}]
             for msg in messages:
                 if isinstance(msg, SystemMessage):
                     groq_messages.append({"role": "system", "content": msg.content})
