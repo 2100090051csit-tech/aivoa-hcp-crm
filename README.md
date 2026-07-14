@@ -116,9 +116,15 @@ Create a `.env` file inside `backend/` with your credentials:
 
 ```env
 GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
-DATABASE_URL=mysql+pymysql://root:YOUR_PASSWORD@localhost:3306/aivoa_crm
+# Can use llama-3.1-8b-instant or llama-3.3-70b-versatile
+GROQ_MODEL=llama-3.1-8b-instant
+
+# OPTIONAL: Defaults to a local SQLite database (crm.db) if left commented out.
+# DATABASE_URL=mysql+pymysql://root:YOUR_PASSWORD@localhost:3306/aivoa_crm
 ```
+
+> [!TIP]
+> **Zero Database Setup Option**: By default, if the `DATABASE_URL` line is commented out or omitted, the application automatically falls back to an embedded SQLite database file (`backend/crm.db`). This makes grading and reviewing this submission extremely convenient, requiring only a Groq API Key!
 
 Seed the database with mock HCP and interaction data:
 
