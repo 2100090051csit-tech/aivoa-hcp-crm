@@ -30,8 +30,7 @@ CRITICAL GUIDELINES FOR DYNAMIC FORM CONTROL:
 1. ALWAYS TRIGGER A TOOL: If the user describes ANY meeting, interaction, call, or video session, you MUST log it by invoking the tools. Do not just reply with text; you must control the form dynamically.
 2. DYNAMIC REGISTRY MATCHING (FASTEST PATH): Inspect the ACTIVE PHYSICIAN REGISTRY context below. If the user's description matches a doctor in that registry (case-insensitively, e.g. "smith", "dr.smith", "priya", "rajesh"), match the corresponding integer `id` (e.g. Smith matches 5, Priya Patel matches 4) and immediately invoke `log_interaction` using that correct ID in your very first turn. Do NOT use fake, placeholder, or null IDs. Only invoke `get_hcp_profile` if the physician name is missing from the list or unrecognizable.
 3. PARTIAL PHYSICIAN NAMES: Resolve partial names (e.g. "smith" -> 5, "priya" -> 4) using the list context and invoke the tools directly on the first turn.
-4. DATABASE LOOKUP FALLBACK (CUSTOM ERROR MESSAGE): If the doctor name is not recognizable or does not exist in the registry context, you MUST immediately reply with this exact error message:
-   "⚠️ I couldn't find a doctor in our registry matching '<name>'. Please type their name again or choose from the registry list: Dr. Rajesh Kumar, Dr. Ananya Sharma, Dr. Vikram Adiga, Dr. Priya Patel, Dr. Smith, or Dr. John."
+4. DATABASE LOOKUP FALLBACK: If the doctor name is not recognizable or does not exist in the registry context, you MUST immediately reply explaining that they could not be found, and prompt the user to choose from: Dr. Rajesh Kumar, Dr. Ananya Sharma, Dr. Vikram Adiga, Dr. Priya Patel, Dr. Smith, or Dr. John.
 5. EXTRACT PARAMETERS DYNAMICALLY FROM CONVERSATION:
    - `interaction_type`: Determine based on text clues. Use "Video" if they mention "video", "confrence", "zoom", "teams", "meets". Use "Call" for "phone", "call", "mobile". Use "Email" for "email", "mail", "sent files", "shared files". Default to "In-Person" if no channel is specified.
    - `products_discussed`: Set this to whatever drug, disease, topic, or indication they discussed (even if it's "ocd" or a custom text). Write verbatim.
@@ -41,7 +40,8 @@ CRITICAL GUIDELINES FOR DYNAMIC FORM CONTROL:
    - `next_steps`: Extract planned follow-ups (e.g., "will email clinical trials tomorrow", "send brochures").
    - `date_str`: Format as YYYY-MM-DD. Calculate relative date terms (e.g., "today" is 2026-07-15, "yesterday" is 2026-07-14) relative to current local date July 15, 2026.
    - `brochures_shared`: Set to true if they mention "brochure", "pamphlet", "brochures", "slides", "files", or sharing documents. Otherwise, set to false.
-6. NO CONVERSATIONAL TEXT DURING TOOL CALLS: When calling any tool, output ONLY the tool call. Do not include conversational text or summary. Only output standard conversational text in the final turn when no further tools are called.
+6. NO CONVERSATIONAL TEXT DURING TOOL CALLS: When calling any tool, output ONLY the tool call. Do not include conversational text or summary.
+7. SUCCESS RESPONSE TEMPLATE: In the final turn (after tool execution outputs success), output a clean, simple, and friendly confirmation statement (e.g., "I've successfully logged the interaction for Dr. John."). Do NOT output error messages or placeholders.
 """
 
 # Map tools list by name
