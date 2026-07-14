@@ -41,12 +41,12 @@ def get_hcp_profile(name_query: str) -> str:
             })
 
         # Try direct query matching name containing normalized search term
-        hcp = db.query(HCP).filter(HCP.name.like(f"%{normalized}%")).first()
+        hcp = db.query(HCP).filter(HCP.name.ilike(f"%{normalized}%")).first()
         if not hcp:
             # Try splitting and filtering out short/invalid parts (like "in", "the", "and")
             parts = [p for p in normalized.split() if len(p) > 2 and p not in ["doctor", "physician", "hcp", "hospital", "clinic"]]
             for part in parts:
-                hcp = db.query(HCP).filter(HCP.name.like(f"%{part}%")).first()
+                hcp = db.query(HCP).filter(HCP.name.ilike(f"%{part}%")).first()
                 if hcp:
                     break
         
@@ -335,14 +335,14 @@ def search_interactions(
         if hcp_id_int is not None:
             q = q.filter(Interaction.hcp_id == hcp_id_int)
         if product_name:
-            q = q.filter(Interaction.products_discussed.like(f"%{product_name}%"))
+            q = q.filter(Interaction.products_discussed.ilike(f"%{product_name}%"))
         
         # Keyword search
         q = q.filter(
-            (Interaction.notes.like(f"%{query}%")) |
-            (Interaction.outcome.like(f"%{query}%")) |
-            (Interaction.ai_summary.like(f"%{query}%")) |
-            (Interaction.products_discussed.like(f"%{query}%"))
+            (Interaction.notes.ilike(f"%{query}%")) |
+            (Interaction.outcome.ilike(f"%{query}%")) |
+            (Interaction.ai_summary.ilike(f"%{query}%")) |
+            (Interaction.products_discussed.ilike(f"%{query}%"))
         )
 
         results = q.order_by(Interaction.date.desc()).limit(10).all()
