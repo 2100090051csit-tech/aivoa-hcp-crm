@@ -476,9 +476,15 @@ export default function LogInteraction({ onNavigateBack }) {
                   type="submit" 
                   className="btn btn-primary"
                   disabled={chatLoading}
-                  style={{ borderTopLeftRadius: '0', borderBottomLeftRadius: '0', width: '50px' }}
+                  style={{ 
+                    borderTopLeftRadius: '0', 
+                    borderBottomLeftRadius: '0', 
+                    padding: '0 18px',
+                    fontSize: '13px',
+                    fontWeight: '600'
+                  }}
                 >
-                  <Send size={14} />
+                  Log
                 </button>
               </form>
             </div>
